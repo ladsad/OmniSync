@@ -96,3 +96,38 @@ This document records the chronological history of work completed, architectural
 - **Issue 2: Windows Winsock Connection Abort in Python Tests**
   - *Symptom:* `ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine` during HTTP method tests on Windows.
   - *Resolution:* Fixed test server request handler to explicitly consume all inbound payload bytes via `rfile.read(content_length)` and provide explicit `Content-Length` headers before closing sockets.
+
+---
+
+### Entry: Jira Connector Implementation
+- **Date:** 2026-09-11
+- **Author:** OmniSync Team
+
+#### Work Completed
+1. **Domain Model & Parsing:**
+   - Java: Defined immutable [`JiraIssue`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/jira/model/JiraIssue.java) record and implemented [`JiraIssueParser`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/jira/parser/JiraIssueParser.java) backed by Jackson Databind.
+   - Python: Defined frozen dataclass [`JiraIssue`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/jira/models.py) and implemented [`parse_jira_search_response()`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/jira/parser.py) using standard library `json`.
+   - Built defensive parsing that extracts issue fields while skipping unidentifiable/corrupted items without halting batch ingestion.
+
+2. **Jira Connector Implementation:**
+   - Java: Implemented [`JiraConnector`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/jira/JiraConnector.java) extending `BaseConnector<JiraIssue>`.
+   - Python: Implemented [`JiraConnector`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/jira/connector.py) extending `BaseConnector[JiraIssue]`.
+   - Built seamless integration with `AuthStrategy` (Basic Auth with API tokens or OAuth2) and `HttpClient` transport.
+   - Handled Jira `startAt` and `maxResults` query parameters and cursor calculations.
+
+3. **Unit & Integration Testing:**
+   - Java: 8 new tests across [`JiraIssueParserTest.java`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/test/java/com/omnisync/jira/parser/JiraIssueParserTest.java) and [`JiraConnectorTest.java`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/test/java/com/omnisync/jira/JiraConnectorTest.java) (total 35 passing tests in suite).
+   - Python: 8 new tests across [`test_jira_parser.py`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/tests/test_jira_parser.py) and [`test_jira_connector.py`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/tests/test_jira_connector.py) (total 35 passing tests in suite, 100% total statement coverage).
+
+4. **Documentation:**
+   - Published [`docs/jira-connector.md`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/docs/jira-connector.md) documenting authentication methods, pagination style, rate-limit behavior, and known Jira limitations.
+
+#### Architectural & Engineering Decisions
+- **Jackson Databind Approval:** User approved adding `com.fasterxml.jackson.core:jackson-databind:2.17.0` (Apache 2.0 open-source) to Java to provide reliable typed parsing and high-throughput JSON tree navigation.
+- **Defensive Item Skipping:** Individual malformed issue items within a batch are skipped rather than aborting the entire page fetch, maximizing pipeline resiliency for inconsistent SaaS payloads.
+- **Uniform Pagination Interface:** Jira's numeric `startAt` offset was seamlessly adapted into OmniSync's opaque string cursor model, allowing callers to consume issues using standard `for` loops and streams.
+
+#### Problems Faced & Resolutions
+- **Issue 1: Non-Numeric Cursor Fallback**
+  - *Symptom:* If an external caller passed an unexpected non-numeric cursor string to JiraConnector, `Integer.parseInt()` threw an unhandled `NumberFormatException`.
+  - *Resolution:* Added defensive parsing in both Java and Python `fetchPage()` to fall back safely to `startAt=0` if a non-numeric cursor string is encountered.
