@@ -18,6 +18,7 @@ OmniSync is a SaaS integration framework (Java + Python) that connects third-par
 ### 2. Documentation must be consistent
 - Every connector, module, or public class/function gets a docstring/Javadoc following one fixed style (pick one and apply it everywhere — don't mix styles across Java and Python beyond the language's own convention).
 - Maintain a `docs/` folder (or update `README.md` if the project stays small) that always reflects current behavior — update docs in the *same* commit as the code change that makes them stale, never as a separate deferred cleanup.
+- Maintain `docs/PROJECT_LOG.md` as a chronological project log documenting all work done, architectural/engineering decisions, and problems/resolutions encountered; keep this file updated consistently alongside major changes and milestones.
 - Each connector must document: auth method used, pagination style, rate-limit behavior, and known limitations.
 - No TODOs left undocumented — if something is deliberately incomplete, say so in the docs, not just in code comments.
 
