@@ -2,10 +2,13 @@
 
 from dataclasses import dataclass, field
 import json
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from omnisync.error.exceptions import MalformedDataError
 from omnisync.hubspot.models import HubSpotContact
+from omnisync.json.pipeline import JsonParsingPipeline
+
+_DEFAULT_PIPELINE = JsonParsingPipeline()
 
 
 @dataclass(frozen=True)
@@ -17,11 +20,32 @@ class HubSpotSearchResult:
     has_more: bool = False
 
 
-def parse_hubspot_contact_response(raw_json: str) -> HubSpotSearchResult:
+def stream_hubspot_contacts(
+    raw_json: str,
+    pipeline: Optional[JsonParsingPipeline] = None,
+) -> Iterator[HubSpotContact]:
+    """Yield parsed HubSpotContact objects lazily from raw JSON response.
+
+    Args:
+        raw_json: Raw JSON response payload string.
+        pipeline: Optional custom JsonParsingPipeline instance.
+
+    Yields:
+        HubSpotContact domain model instances.
+    """
+    p = pipeline or _DEFAULT_PIPELINE
+    return p.stream_array(raw_json, "results", _parse_single_contact)
+
+
+def parse_hubspot_contact_response(
+    raw_json: str,
+    pipeline: Optional[JsonParsingPipeline] = None,
+) -> HubSpotSearchResult:
     """Parse raw JSON response from HubSpot CRM endpoint defensively.
 
     Args:
         raw_json: Raw JSON payload string.
+        pipeline: Optional custom JsonParsingPipeline instance.
 
     Returns:
         HubSpotSearchResult containing contacts and next page cursor.
@@ -29,31 +53,10 @@ def parse_hubspot_contact_response(raw_json: str) -> HubSpotSearchResult:
     Raises:
         MalformedDataError: If JSON syntax is invalid or root is not an object.
     """
-    if not raw_json or not raw_json.strip():
-        raise MalformedDataError("Empty or null HubSpot JSON payload", raw_payload=raw_json)
+    p = pipeline or _DEFAULT_PIPELINE
+    data = p.parse_dict(raw_json)
 
-    try:
-        data = json.loads(raw_json)
-    except Exception as exc:
-        raise MalformedDataError(
-            f"Failed to parse HubSpot response: {exc}",
-            raw_payload=raw_json,
-        ) from exc
-
-    if not isinstance(data, dict):
-        raise MalformedDataError(
-            "HubSpot response root must be a JSON object",
-            raw_payload=raw_json,
-        )
-
-    contacts_raw = data.get("results", [])
-    contacts: list[HubSpotContact] = []
-
-    if isinstance(contacts_raw, list):
-        for item in contacts_raw:
-            contact = _parse_single_contact(item)
-            if contact is not None:
-                contacts.append(contact)
+    contacts = p.parse_array(raw_json, "results", _parse_single_contact)
 
     paging = data.get("paging")
     next_obj = paging.get("next") if isinstance(paging, dict) else None

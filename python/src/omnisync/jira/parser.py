@@ -2,10 +2,13 @@
 
 from dataclasses import dataclass, field
 import json
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from omnisync.error.exceptions import MalformedDataError
 from omnisync.jira.models import JiraIssue
+from omnisync.json.pipeline import JsonParsingPipeline
+
+_DEFAULT_PIPELINE = JsonParsingPipeline()
 
 
 @dataclass(frozen=True)
@@ -18,11 +21,32 @@ class JiraSearchResult:
     issues: list[JiraIssue] = field(default_factory=list)
 
 
-def parse_jira_search_response(raw_json: str) -> JiraSearchResult:
+def stream_jira_issues(
+    raw_json: str,
+    pipeline: Optional[JsonParsingPipeline] = None,
+) -> Iterator[JiraIssue]:
+    """Yield parsed JiraIssue domain objects lazily from a raw JSON search response.
+
+    Args:
+        raw_json: Raw JSON response payload string.
+        pipeline: Optional custom JsonParsingPipeline instance.
+
+    Yields:
+        JiraIssue domain model instances.
+    """
+    p = pipeline or _DEFAULT_PIPELINE
+    return p.stream_array(raw_json, "issues", _parse_single_issue)
+
+
+def parse_jira_search_response(
+    raw_json: str,
+    pipeline: Optional[JsonParsingPipeline] = None,
+) -> JiraSearchResult:
     """Parse raw JSON from Jira search endpoint defensively.
 
     Args:
         raw_json: Raw JSON response payload string.
+        pipeline: Optional custom JsonParsingPipeline instance.
 
     Returns:
         JiraSearchResult containing pagination metadata and parsed issues.
@@ -30,35 +54,14 @@ def parse_jira_search_response(raw_json: str) -> JiraSearchResult:
     Raises:
         MalformedDataError: If JSON syntax is invalid or root is not an object.
     """
-    if not raw_json or not raw_json.strip():
-        raise MalformedDataError("Empty or null Jira JSON payload", raw_payload=raw_json)
-
-    try:
-        data = json.loads(raw_json)
-    except Exception as exc:
-        raise MalformedDataError(
-            f"Failed to parse Jira response: {exc}",
-            raw_payload=raw_json,
-        ) from exc
-
-    if not isinstance(data, dict):
-        raise MalformedDataError(
-            "Jira response root must be a JSON object",
-            raw_payload=raw_json,
-        )
+    p = pipeline or _DEFAULT_PIPELINE
+    data = p.parse_dict(raw_json)
 
     start_at = int(data.get("startAt", 0))
     max_results = int(data.get("maxResults", 50))
     total = int(data.get("total", 0))
 
-    issues_raw = data.get("issues", [])
-    issues: list[JiraIssue] = []
-
-    if isinstance(issues_raw, list):
-        for item in issues_raw:
-            issue = _parse_single_issue(item)
-            if issue is not None:
-                issues.append(issue)
+    issues = p.parse_array(raw_json, "issues", _parse_single_issue)
 
     return JiraSearchResult(
         start_at=start_at,

@@ -3,6 +3,7 @@ package com.omnisync.jira.parser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omnisync.core.error.MalformedDataException;
+import com.omnisync.core.json.JsonParsingPipeline;
 import com.omnisync.jira.model.JiraIssue;
 
 import java.util.ArrayList;
@@ -14,6 +15,8 @@ import java.util.List;
 public class JiraIssueParser {
 
     private final ObjectMapper objectMapper;
+
+    private final JsonParsingPipeline pipeline;
 
     /**
      * Constructs a JiraIssueParser using a default Jackson ObjectMapper.
@@ -29,16 +32,80 @@ public class JiraIssueParser {
      */
     public JiraIssueParser(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.pipeline = new JsonParsingPipeline(this.objectMapper.getFactory());
     }
 
     /**
-     * Parses a raw JSON response string from Jira search endpoints into a JiraSearchResult.
+     * Parses a raw JSON response string from Jira search endpoints using high-throughput streaming.
      *
      * @param rawJson the response payload from Jira API
      * @return parsed search result containing pagination metadata and valid issues
      * @throws MalformedDataException if JSON parsing fails entirely or root structure is invalid
      */
     public JiraSearchResult parseSearchResponse(String rawJson) throws MalformedDataException {
+        return parseSearchResponseStreaming(rawJson);
+    }
+
+    /**
+     * High-performance streaming parser reading token-by-token without building full DOM trees.
+     *
+     * @param rawJson the response payload from Jira API
+     * @return parsed search result containing pagination metadata and valid issues
+     * @throws MalformedDataException if JSON parsing fails entirely or root structure is invalid
+     */
+    public JiraSearchResult parseSearchResponseStreaming(String rawJson) throws MalformedDataException {
+        return pipeline.parseString(rawJson, parser -> {
+            if (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                throw new MalformedDataException("Jira response root must be a JSON object", rawJson);
+            }
+
+            int startAt = 0;
+            int maxResults = 50;
+            int total = 0;
+            List<JiraIssue> issues = new ArrayList<>();
+
+            while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+                String fieldName = parser.currentName();
+                if ("startAt".equals(fieldName)) {
+                    parser.nextToken();
+                    startAt = parser.getValueAsInt(0);
+                } else if ("maxResults".equals(fieldName)) {
+                    parser.nextToken();
+                    maxResults = parser.getValueAsInt(50);
+                } else if ("total".equals(fieldName)) {
+                    parser.nextToken();
+                    total = parser.getValueAsInt(0);
+                } else if ("issues".equals(fieldName)) {
+                    if (parser.nextToken() == com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
+                        while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_ARRAY && parser.currentToken() != null) {
+                            if (parser.currentToken() == com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                                JiraIssue issue = parseSingleIssueStreaming(parser);
+                                if (issue != null) {
+                                    issues.add(issue);
+                                }
+                            } else {
+                                parser.skipChildren();
+                            }
+                        }
+                    }
+                } else {
+                    parser.nextToken();
+                    parser.skipChildren();
+                }
+            }
+
+            return new JiraSearchResult(startAt, maxResults, total, issues);
+        });
+    }
+
+    /**
+     * Baseline DOM-based parser utilizing ObjectMapper readTree.
+     *
+     * @param rawJson raw JSON response
+     * @return parsed search result
+     * @throws MalformedDataException if JSON parsing fails
+     */
+    public JiraSearchResult parseSearchResponseDom(String rawJson) throws MalformedDataException {
         if (rawJson == null || rawJson.isBlank()) {
             throw new MalformedDataException("Empty or null Jira JSON payload", rawJson);
         }
@@ -70,6 +137,103 @@ public class JiraIssueParser {
         } catch (Exception e) {
             throw new MalformedDataException("Failed to parse Jira response: " + e.getMessage(), rawJson, e);
         }
+    }
+
+    private JiraIssue parseSingleIssueStreaming(com.fasterxml.jackson.core.JsonParser parser) throws Exception {
+        String id = null;
+        String key = null;
+        String summary = "";
+        String status = "Unknown";
+        String issueType = "Unknown";
+        String priority = "None";
+        String created = "";
+        String updated = "";
+        String assignee = "Unassigned";
+
+        while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+            String fieldName = parser.currentName();
+            if ("id".equals(fieldName)) {
+                id = parser.nextTextValue();
+            } else if ("key".equals(fieldName)) {
+                key = parser.nextTextValue();
+            } else if ("fields".equals(fieldName)) {
+                if (parser.nextToken() == com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                    while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+                        String subField = parser.currentName();
+                        if ("summary".equals(subField)) {
+                            String s = parser.nextTextValue();
+                            if (s != null) summary = s;
+                        } else if ("status".equals(subField)) {
+                            if (parser.nextToken() == com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                                while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+                                    if ("name".equals(parser.currentName())) {
+                                        String val = parser.nextTextValue();
+                                        if (val != null) status = val;
+                                    } else {
+                                        parser.nextToken();
+                                        parser.skipChildren();
+                                    }
+                                }
+                            }
+                        } else if ("issuetype".equals(subField)) {
+                            if (parser.nextToken() == com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                                while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+                                    if ("name".equals(parser.currentName())) {
+                                        String val = parser.nextTextValue();
+                                        if (val != null) issueType = val;
+                                    } else {
+                                        parser.nextToken();
+                                        parser.skipChildren();
+                                    }
+                                }
+                            }
+                        } else if ("priority".equals(subField)) {
+                            if (parser.nextToken() == com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                                while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+                                    if ("name".equals(parser.currentName())) {
+                                        String val = parser.nextTextValue();
+                                        if (val != null) priority = val;
+                                    } else {
+                                        parser.nextToken();
+                                        parser.skipChildren();
+                                    }
+                                }
+                            }
+                        } else if ("created".equals(subField)) {
+                            String val = parser.nextTextValue();
+                            if (val != null) created = val;
+                        } else if ("updated".equals(subField)) {
+                            String val = parser.nextTextValue();
+                            if (val != null) updated = val;
+                        } else if ("assignee".equals(subField)) {
+                            if (parser.nextToken() == com.fasterxml.jackson.core.JsonToken.START_OBJECT) {
+                                while (parser.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT && parser.currentToken() != null) {
+                                    if ("displayName".equals(parser.currentName())) {
+                                        String val = parser.nextTextValue();
+                                        if (val != null) assignee = val;
+                                    } else {
+                                        parser.nextToken();
+                                        parser.skipChildren();
+                                    }
+                                }
+                            }
+                        } else {
+                            parser.nextToken();
+                            parser.skipChildren();
+                        }
+                    }
+                }
+            } else {
+                parser.nextToken();
+                parser.skipChildren();
+            }
+        }
+
+        if (id == null || key == null || id.isBlank() || key.isBlank()) {
+            return null;
+        }
+
+        return new JiraIssue(id, key, summary, status, issueType, priority, created, updated, assignee);
     }
 
     /**
