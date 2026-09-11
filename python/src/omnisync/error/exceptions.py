@@ -72,3 +72,22 @@ class NetworkError(OmniSyncError):
         """
         super().__init__(message)
         self.status_code = status_code
+
+
+class CircuitBreakerOpenError(OmniSyncError):
+    """Raised when requests are short-circuited because a circuit breaker is in OPEN state."""
+
+    def __init__(
+        self,
+        message: str,
+        remaining_timeout_seconds: Optional[float] = None,
+    ) -> None:
+        """Initialize circuit breaker error.
+
+        Args:
+            message: Descriptive failure message.
+            remaining_timeout_seconds: Estimated seconds remaining before circuit probe is allowed.
+        """
+        super().__init__(message)
+        self.remaining_timeout_seconds = remaining_timeout_seconds
+

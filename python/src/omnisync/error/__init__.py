@@ -2,6 +2,7 @@
 
 from omnisync.error.exceptions import (
     AuthenticationError,
+    CircuitBreakerOpenError,
     MalformedDataError,
     NetworkError,
     OmniSyncError,
@@ -10,6 +11,7 @@ from omnisync.error.exceptions import (
 
 __all__ = [
     "AuthenticationError",
+    "CircuitBreakerOpenError",
     "MalformedDataError",
     "NetworkError",
     "OmniSyncError",

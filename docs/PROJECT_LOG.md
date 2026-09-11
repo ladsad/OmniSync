@@ -165,3 +165,44 @@ This document records the chronological history of work completed, architectural
 - **Issue 1: Property Flattening in Response Payloads**
   - *Symptom:* HubSpot nests business attributes inside a `properties` sub-object while returning `createdAt` and `updatedAt` at the root and alternatively inside properties (`createdate`, `lastmodifieddate`).
   - *Resolution:* Implemented fallback extraction logic in both Java and Python parsers to inspect root keys and fall back to inner property aliases seamlessly.
+
+---
+
+### Entry: Resilience Layer (Exponential Backoff, Rate-Limiting, Circuit Breaker)
+- **Date:** 2026-09-11
+- **Author:** OmniSync Team
+
+#### Work Completed
+1. **Error Hierarchy Extension:**
+   - Java: Added [`CircuitBreakerOpenException`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/core/error/CircuitBreakerOpenException.java) extending `OmniSyncException`.
+   - Python: Added [`CircuitBreakerOpenError`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/error/exceptions.py) extending `OmniSyncError`.
+
+2. **Retry Policy with Exponential Backoff & Jitter:**
+   - Java: Implemented [`RetryPolicy`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/core/resilience/RetryPolicy.java) calculating exponential backoff with full jitter and respecting `RateLimitExceededException.getRetryAfter()`.
+   - Python: Implemented [`RetryPolicy`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/resilience/retry.py) supporting exponential backoff, full jitter, and respecting `RateLimitExceededError.retry_after_seconds`.
+
+3. **Circuit Breaker State Machine:**
+   - Java: Implemented [`CircuitBreaker`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/core/resilience/CircuitBreaker.java) governing CLOSED, OPEN, and HALF_OPEN state transitions.
+   - Python: Implemented [`CircuitBreaker`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/resilience/circuit_breaker.py) with identical transition mechanics.
+
+4. **Resilient HTTP Client Decorator:**
+   - Java: Implemented [`ResilientHttpClient`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/core/resilience/ResilientHttpClient.java) wrapping any `HttpClient` and accepting pluggable `Sleeper` for deterministic testing.
+   - Python: Implemented [`ResilientHttpClient`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/resilience/client.py) with pluggable sleeper callable.
+
+5. **Unit & Integration Testing:**
+   - Java: 6 comprehensive tests in [`ResilienceTest.java`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/test/java/com/omnisync/core/resilience/ResilienceTest.java) (total 48 passing tests in suite).
+   - Python: 7 comprehensive tests in [`test_resilience.py`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/tests/test_resilience.py) (total 49 passing tests in suite, 100% total statement coverage).
+
+6. **Documentation:**
+   - Published [`docs/resilience-layer.md`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/docs/resilience-layer.md).
+
+#### Architectural & Engineering Decisions
+- **Decorator Pattern for Transport Resilience:** Implemented `ResilientHttpClient` as a decorator conforming to the `HttpClient` interface. This ensures all existing and future connectors (`JiraConnector`, `HubSpotConnector`, etc.) gain full retry backoff and circuit breaking transparently without changing a single line of connector code.
+- **Pluggable Sleepers for Deterministic Testing:** Created `Sleeper` functional interface in Java and injected `Callable[[float], None]` in Python to allow unit tests to mock sleep intervals without introducing slow real-time test thread sleeps.
+- **Rate Limit Priority:** Explicit `Retry-After` durations returned by APIs on HTTP 429 take precedence over algorithmic exponential backoff, adhering strictly to upstream API quotas.
+
+#### Problems Faced & Resolutions
+- **Issue 1: Test Timing Flakiness on Windows Clocks**
+  - *Symptom:* `test_circuit_breaker_lifecycle` in Python failed due to `recovery_timeout_seconds` lower bound clamp (`max(0.1, recovery_timeout_seconds)`) when a test passed `0.05s`.
+  - *Resolution:* Adjusted lower bound clamping to `max(0.0, recovery_timeout_seconds)` so unit test suites can configure sub-decisecond recovery timeouts reliably.
+
