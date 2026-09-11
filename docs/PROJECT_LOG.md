@@ -131,3 +131,37 @@ This document records the chronological history of work completed, architectural
 - **Issue 1: Non-Numeric Cursor Fallback**
   - *Symptom:* If an external caller passed an unexpected non-numeric cursor string to JiraConnector, `Integer.parseInt()` threw an unhandled `NumberFormatException`.
   - *Resolution:* Added defensive parsing in both Java and Python `fetchPage()` to fall back safely to `startAt=0` if a non-numeric cursor string is encountered.
+
+---
+
+### Entry: HubSpot Connector Implementation
+- **Date:** 2026-09-11
+- **Author:** OmniSync Team
+
+#### Work Completed
+1. **Domain Model & Parsing:**
+   - Java: Implemented immutable [`HubSpotContact`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/hubspot/model/HubSpotContact.java) record, [`HubSpotSearchResult`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/hubspot/parser/HubSpotSearchResult.java), and [`HubSpotContactParser`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/hubspot/parser/HubSpotContactParser.java) using Jackson Databind.
+   - Python: Implemented frozen dataclasses [`HubSpotContact`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/hubspot/models.py) and [`HubSpotSearchResult`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/hubspot/parser.py), alongside [`parse_hubspot_contact_response()`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/hubspot/parser.py).
+   - Built defensive parsing handling missing contact IDs, properties dictionaries, and empty terminal paging markers.
+
+2. **HubSpot Connector Implementation:**
+   - Java: Created [`HubSpotConnector`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/main/java/com/omnisync/hubspot/HubSpotConnector.java) extending `BaseConnector<HubSpotContact>`.
+   - Python: Created [`HubSpotConnector`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/src/omnisync/hubspot/connector.py) extending `BaseConnector[HubSpotContact]`.
+   - Integrated cursor-based pagination using the `after` query parameter and `paging.next.after` cursor extraction.
+   - Wired authentication header delegation via `AuthStrategy` (`OAuth2Strategy`).
+
+3. **Unit & Integration Testing:**
+   - Java: 7 new tests in [`HubSpotContactParserTest.java`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/test/java/com/omnisync/hubspot/parser/HubSpotContactParserTest.java) and [`HubSpotConnectorTest.java`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/src/test/java/com/omnisync/hubspot/HubSpotConnectorTest.java) (total 42 passing tests in suite).
+   - Python: 7 new tests in [`test_hubspot_parser.py`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/tests/test_hubspot_parser.py) and [`test_hubspot_connector.py`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/tests/test_hubspot_connector.py) (total 42 passing tests in suite, 100% statement coverage).
+
+4. **Documentation:**
+   - Published [`docs/hubspot-connector.md`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/docs/hubspot-connector.md) documenting authentication methods, pagination style, rate-limit behavior, and known HubSpot API limitations.
+
+#### Architectural & Engineering Decisions
+- **Extensibility Validation (Open/Closed Principle):** Added HubSpot connector reusing the identical `BaseConnector`, `HttpClient`, and `PaginationIterator` infrastructure without modifying core pipeline abstractions.
+- **Opaque Cursor Strategy:** HubSpot's string-based cursor token `after` maps directly to OmniSync's `Page.nextCursor`, proving the generality of the pagination abstraction across both offset-based (Jira) and cursor-based (HubSpot) APIs.
+
+#### Problems Faced & Resolutions
+- **Issue 1: Property Flattening in Response Payloads**
+  - *Symptom:* HubSpot nests business attributes inside a `properties` sub-object while returning `createdAt` and `updatedAt` at the root and alternatively inside properties (`createdate`, `lastmodifieddate`).
+  - *Resolution:* Implemented fallback extraction logic in both Java and Python parsers to inspect root keys and fall back to inner property aliases seamlessly.
