@@ -261,5 +261,22 @@ This document records the chronological history of work completed, architectural
    - Java 17 test suite: 55 unit tests passing with full JaCoCo code coverage.
    - Python 3.10+ test suite: 57 unit tests passing with 100% statement coverage.
 
+---
+
+### Entry: Usability, Documentation Index & Developer Quickstarts
+- **Date:** 2026-09-11
+- **Author:** OmniSync Team
+
+#### Work Completed
+1. **Root Readme Overhaul:**
+   - Published comprehensive root [`README.MD`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/README.MD) featuring architecture diagram, feature overview, dual-runtime quickstart guides with complete working code examples for Jira and HubSpot, repository tree map, and exhaustive documentation index.
+2. **Submodule Readmes:**
+   - Created [`java/README.md`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/java/README.md) with Maven build instructions, JaCoCo coverage reporting commands, benchmark execution commands, and package breakdown.
+   - Updated [`python/README.md`](file:///C:/Users/shaur/Desktop/Projects/OmniSync/python/README.md) with virtual environment instructions, PyTest and coverage commands, and module breakdown.
+3. **Repository Cleanliness Verification:**
+   - Verified no temporary or untracked scratch files remain.
+   - Confirmed both test suites pass seamlessly (55 Java tests, 57 Python tests, 100% statement coverage).
+
+
 
 
